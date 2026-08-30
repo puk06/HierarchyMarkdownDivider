@@ -1,0 +1,13 @@
+{
+    "name": "net.puk06.hierarchy-markdown-divider",
+    "displayName": "Hierarchy Markdown Divider",
+    "version": "1.0.0",
+    "author": {
+        "name": "Pukorufu",
+        "url": "https://github.com/puk06",
+        "email": "pukorufu@pukosrv.net"
+    },
+    "unity": "2022.3",
+    "description": "HierarchyをMarkdownのタイトルのようにカテゴリ分けするエディタ拡張です。",
+    "url": "https://github.com/puk06/HierarchyMarkdownDivider/releases/download/v1.0.0/net.puk06.hierarchy-markdown-divider-v1.0.0.zip?"
+}
