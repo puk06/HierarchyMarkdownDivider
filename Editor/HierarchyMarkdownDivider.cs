@@ -24,6 +24,9 @@ public class HierarchyMarkdownDivider
     private const float ToggleSize = 14f;
     private const float ToggleMargin = 4f;
     private const string FoldStatePrefsPrefix = "HierarchyMarkdownDivider_Fold_";
+    private const double VisibilityCheckInterval = 1.0;
+
+    private static double nextVisibilityCheckTime;
 
     /// <summary>
     /// 開閉状態を保持する辞書（キーは GlobalObjectId の文字列）。
@@ -33,6 +36,52 @@ public class HierarchyMarkdownDivider
     static HierarchyMarkdownDivider()
     {
         EditorApplication.hierarchyWindowItemOnGUI += OnHierarchyWindowItemOnGUI;
+        EditorApplication.update += OnEditorUpdate;
+        EditorApplication.delayCall += SynchronizeAllSectionVisibility;
+    }
+
+    private static void OnEditorUpdate()
+    {
+        if (EditorApplication.timeSinceStartup < nextVisibilityCheckTime) return;
+
+        nextVisibilityCheckTime = EditorApplication.timeSinceStartup + VisibilityCheckInterval;
+        SynchronizeAllSectionVisibility();
+    }
+
+    /// <summary>
+    /// 保存されている開閉状態と、実際の Hierarchy の表示状態を定期的に同期する。
+    /// 画面再読み込みなどで hideFlags だけが戻った場合もここで復旧する。
+    /// </summary>
+    private static void SynchronizeAllSectionVisibility()
+    {
+        var objects = Resources.FindObjectsOfTypeAll<GameObject>();
+        var dividers = new List<GameObject>();
+
+        foreach (var go in objects)
+        {
+            if (go == null || EditorUtility.IsPersistent(go) || !go.scene.IsValid()) continue;
+
+            int level = GetDividerLevel(go.name);
+            if (level == 0) continue;
+
+            dividers.Add(go);
+        }
+
+        // 下位レベルを先に適用し、上位レベルの折りたたみを最後に適用する。
+        // これにより、親 Divider が閉じているときに子 Divider の同期で
+        // 内容だけが再表示されることを防ぐ。
+        dividers.Sort((left, right) => GetDividerLevel(right.name).CompareTo(GetDividerLevel(left.name)));
+
+        bool changed = false;
+        foreach (var divider in dividers)
+        {
+            string key = GetFoldStateKey(divider);
+            int level = GetDividerLevel(divider.name);
+            changed |= ApplySectionVisibility(divider, level, GetFoldState(key), false);
+        }
+
+        if (changed)
+            EditorApplication.RepaintHierarchyWindow();
     }
 
     private static void OnHierarchyWindowItemOnGUI(int instanceID, Rect selectionRect)
@@ -112,7 +161,7 @@ public class HierarchyMarkdownDivider
         if (newExpanded != expanded)
         {
             SetFoldState(key, newExpanded);
-            ApplySectionVisibility(divider, level, newExpanded);
+            ApplySectionVisibility(divider, level, newExpanded, true);
             EditorApplication.RepaintHierarchyWindow();
             return newExpanded;
         }
@@ -123,22 +172,29 @@ public class HierarchyMarkdownDivider
     /// <summary>
     /// Divider から次の Divider（同じか上位のレベル）までの同じ階層のオブジェクトを表示/非表示にする。
     /// </summary>
-    private static void ApplySectionVisibility(GameObject divider, int level, bool expanded)
+    private static bool ApplySectionVisibility(GameObject divider, int level, bool expanded, bool recordUndo)
     {
         var siblings = CollectSectionSiblings(divider, level);
-        if (siblings.Count == 0) return;
+        if (siblings.Count == 0) return false;
 
-        Undo.RecordObjects(siblings.ToArray(), expanded ? "Expand Markdown Divider" : "Collapse Markdown Divider");
+        if (recordUndo)
+            Undo.RecordObjects(siblings.ToArray(), expanded ? "Expand Markdown Divider" : "Collapse Markdown Divider");
 
+        bool changed = false;
         foreach (var go in siblings)
         {
             if (go == null) continue;
 
+            HideFlags previousFlags = go.hideFlags;
             if (expanded)
                 go.hideFlags &= ~HideFlags.HideInHierarchy;
             else
                 go.hideFlags |= HideFlags.HideInHierarchy;
+
+            changed |= previousFlags != go.hideFlags;
         }
+
+        return changed;
     }
 
     /// <summary>
